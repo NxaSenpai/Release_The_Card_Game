@@ -1,0 +1,247 @@
+[gd_scene load_steps=16 format=3 uid="uid://bhwfp5y5ex06t"]
+
+[ext_resource type="Script" uid="uid://tfxpyt0sgi5n" path="res://scripts/Main.gd" id="1_o5qli"]
+[ext_resource type="Texture2D" uid="uid://dqf6rxkg57msr" path="res://textures/deck_background.jpg" id="2_0wfyh"]
+[ext_resource type="FontFile" uid="uid://dyk2pijt4n06h" path="res://fonts/Unitblock-JpJma.ttf" id="3_o6xl0"]
+[ext_resource type="AudioStream" uid="uid://bipwxpihqxwr8" path="res://sfx/SfxError.mp3" id="3_tefeu"]
+[ext_resource type="AudioStream" uid="uid://bh1eq7c5lpfcb" path="res://sfx/SfxDraw.ogg" id="4_o6xl0"]
+[ext_resource type="AudioStream" uid="uid://d0d01624foh73" path="res://sfx/SfxMatch.mp3" id="5_tipki"]
+[ext_resource type="AudioStream" uid="uid://ba071yx81abq5" path="res://sfx/SfxSelect.ogg" id="6_85g3d"]
+
+[sub_resource type="Gradient" id="Gradient_ambient"]
+colors = PackedColorArray(0.3, 0.8, 1, 0.6, 0.3, 0.8, 1, 0)
+
+[sub_resource type="GradientTexture1D" id="GradientTexture1D_ambient"]
+gradient = SubResource("Gradient_ambient")
+
+[sub_resource type="ParticleProcessMaterial" id="ParticleProcessMaterial_ambient"]
+particle_flag_disable_z = true
+direction = Vector3(0, -1, 0)
+spread = 30.0
+initial_velocity_min = 20.0
+initial_velocity_max = 50.0
+gravity = Vector3(0, -20, 0)
+scale_max = 3.0
+color_ramp = SubResource("GradientTexture1D_ambient")
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_button"]
+bg_color = Color(0.15, 0.12, 0.25, 1)
+border_width_left = 3
+border_width_top = 3
+border_width_right = 3
+border_width_bottom = 3
+border_color = Color(0.8, 0.6, 0.2, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+shadow_color = Color(0, 0, 0, 0.5)
+shadow_size = 4
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_button_hover"]
+bg_color = Color(0.25, 0.2, 0.4, 1)
+border_width_left = 3
+border_width_top = 3
+border_width_right = 3
+border_width_bottom = 3
+border_color = Color(1, 0.8, 0.3, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+shadow_color = Color(1, 0.8, 0.3, 0.3)
+shadow_size = 8
+
+[sub_resource type="Gradient" id="Gradient_success"]
+offsets = PackedFloat32Array(0, 0.5, 1)
+colors = PackedColorArray(1, 0.84, 0, 1, 1, 0.6, 0, 1, 1, 0.84, 0, 0)
+
+[sub_resource type="GradientTexture1D" id="GradientTexture1D_success"]
+gradient = SubResource("Gradient_success")
+
+[sub_resource type="ParticleProcessMaterial" id="ParticleProcessMaterial_success"]
+particle_flag_disable_z = true
+spread = 180.0
+initial_velocity_min = 150.0
+initial_velocity_max = 350.0
+gravity = Vector3(0, 200, 0)
+scale_min = 2.0
+scale_max = 5.0
+color_ramp = SubResource("GradientTexture1D_success")
+
+[node name="Main" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_o5qli")
+
+[node name="BackgroundLayer" type="Control" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="AnimatedBG" type="TextureRect" parent="BackgroundLayer"]
+modulate = Color(0.1, 0.6, 0.15, 1)
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+texture = ExtResource("2_0wfyh")
+stretch_mode = 1
+
+[node name="Vignette" type="ColorRect" parent="BackgroundLayer"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0, 0, 0, 0)
+
+[node name="AmbientParticles" type="GPUParticles2D" parent="."]
+position = Vector2(576, 700)
+emitting = false
+amount = 50
+lifetime = 8.0
+process_material = SubResource("ParticleProcessMaterial_ambient")
+
+[node name="Hand" type="HBoxContainer" parent="."]
+custom_minimum_size = Vector2(800, 0)
+layout_mode = 1
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -396.0
+offset_top = -248.0
+offset_right = 404.0
+offset_bottom = -48.0
+grow_horizontal = 2
+grow_vertical = 0
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/separation = 4
+
+[node name="UILayer" type="Control" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="DrawButton" type="Button" parent="UILayer"]
+layout_mode = 0
+offset_left = 1008.0
+offset_top = 294.0
+offset_right = 1130.0
+offset_bottom = 380.0
+pivot_offset = Vector2(61, 43)
+theme_override_colors/font_color = Color(1, 0.9, 0.7, 1)
+theme_override_colors/font_hover_color = Color(1, 1, 0.8, 1)
+theme_override_fonts/font = ExtResource("3_o6xl0")
+theme_override_font_sizes/font_size = 18
+theme_override_styles/normal = SubResource("StyleBoxFlat_button")
+theme_override_styles/hover = SubResource("StyleBoxFlat_button_hover")
+text = "Draw Card"
+
+[node name="RestartButton" type="Button" parent="UILayer"]
+layout_mode = 0
+offset_left = 1010.0
+offset_top = 138.0
+offset_right = 1130.0
+offset_bottom = 200.0
+pivot_offset = Vector2(60, 31)
+theme_override_colors/font_color = Color(1, 0.9, 0.7, 1)
+theme_override_colors/font_hover_color = Color(1, 1, 0.8, 1)
+theme_override_fonts/font = ExtResource("3_o6xl0")
+theme_override_font_sizes/font_size = 18
+theme_override_styles/normal = SubResource("StyleBoxFlat_button")
+theme_override_styles/hover = SubResource("StyleBoxFlat_button_hover")
+text = "Restart"
+
+[node name="ScoreLabel" type="Label" parent="UILayer"]
+layout_mode = 0
+offset_left = 30.0
+offset_top = 70.0
+offset_right = 250.0
+offset_bottom = 110.0
+theme_override_colors/font_color = Color(1, 0.85, 0.4, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 4
+theme_override_fonts/font = ExtResource("3_o6xl0")
+theme_override_font_sizes/font_size = 28
+text = "Score: 0"
+
+[node name="DeckLabel" type="Label" parent="UILayer"]
+layout_mode = 0
+offset_left = 30.0
+offset_top = 30.0
+offset_right = 250.0
+offset_bottom = 60.0
+theme_override_colors/font_color = Color(0.9, 0.95, 1, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 3
+theme_override_fonts/font = ExtResource("3_o6xl0")
+theme_override_font_sizes/font_size = 22
+text = "Cards: 52"
+
+[node name="ComboLabel" type="Label" parent="UILayer"]
+layout_mode = 0
+offset_left = 30.0
+offset_top = 110.0
+offset_right = 250.0
+offset_bottom = 145.0
+theme_override_colors/font_color = Color(1, 0.5, 0.3, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 3
+theme_override_fonts/font = ExtResource("3_o6xl0")
+theme_override_font_sizes/font_size = 20
+
+[node name="FlashOverlay" type="ColorRect" parent="."]
+modulate = Color(1, 1, 1, 0)
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="SuccessParticles" type="GPUParticles2D" parent="."]
+position = Vector2(569, 283)
+emitting = false
+amount = 50
+one_shot = true
+explosiveness = 0.9
+process_material = SubResource("ParticleProcessMaterial_success")
+
+[node name="SfxError" type="AudioStreamPlayer2D" parent="."]
+stream = ExtResource("3_tefeu")
+
+[node name="SfxDraw" type="AudioStreamPlayer2D" parent="."]
+stream = ExtResource("4_o6xl0")
+
+[node name="SfxMatch" type="AudioStreamPlayer2D" parent="."]
+stream = ExtResource("5_tipki")
+
+[node name="SfxSelect" type="AudioStreamPlayer2D" parent="."]
+stream = ExtResource("6_85g3d")
+
+[node name="MusicPlayer" type="AudioStreamPlayer2D" parent="."]
+
+[connection signal="pressed" from="UILayer/DrawButton" to="." method="_on_draw_button_pressed"]
+[connection signal="pressed" from="UILayer/RestartButton" to="." method="_on_restart_button_pressed"]

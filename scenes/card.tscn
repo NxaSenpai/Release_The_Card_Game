@@ -1,0 +1,24 @@
+[gd_scene load_steps=3 format=3 uid="uid://bx5w5gccx1dfj"]
+
+[ext_resource type="Script" uid="uid://gne0fv5kx5ft" path="res://scripts/Card.gd" id="1_d81rb"]
+[ext_resource type="Texture2D" uid="uid://d1tue01d4h4we" path="res://textures/card_background/cardJoker.png" id="2_6u4wf"]
+
+[node name="Card" type="Control"]
+custom_minimum_size = Vector2(120, 160)
+layout_mode = 3
+anchors_preset = 0
+offset_right = 100.0
+offset_bottom = 140.0
+script = ExtResource("1_d81rb")
+
+[node name="Background" type="TextureRect" parent="."]
+layout_mode = 0
+offset_right = 140.0
+offset_bottom = 190.0
+mouse_filter = 2
+texture = ExtResource("2_6u4wf")
+expand_mode = 4
+stretch_mode = 2
+
+[connection signal="mouse_entered" from="." to="." method="_on_mouse_entered"]
+[connection signal="mouse_exited" from="." to="." method="_on_mouse_exited"]
