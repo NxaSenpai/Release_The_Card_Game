@@ -1,12 +1,26 @@
-[gd_scene load_steps=16 format=3 uid="uid://bhwfp5y5ex06t"]
+[gd_scene load_steps=17 format=3 uid="uid://bhwfp5y5ex06t"]
 
 [ext_resource type="Script" uid="uid://tfxpyt0sgi5n" path="res://scripts/Main.gd" id="1_o5qli"]
-[ext_resource type="Texture2D" uid="uid://dqf6rxkg57msr" path="res://textures/deck_background.jpg" id="2_0wfyh"]
 [ext_resource type="FontFile" uid="uid://dyk2pijt4n06h" path="res://fonts/Unitblock-JpJma.ttf" id="3_o6xl0"]
 [ext_resource type="AudioStream" uid="uid://bipwxpihqxwr8" path="res://sfx/SfxError.mp3" id="3_tefeu"]
 [ext_resource type="AudioStream" uid="uid://bh1eq7c5lpfcb" path="res://sfx/SfxDraw.ogg" id="4_o6xl0"]
 [ext_resource type="AudioStream" uid="uid://d0d01624foh73" path="res://sfx/SfxMatch.mp3" id="5_tipki"]
 [ext_resource type="AudioStream" uid="uid://ba071yx81abq5" path="res://sfx/SfxSelect.ogg" id="6_85g3d"]
+[ext_resource type="Shader" uid="uid://dwwq4h0mr7t3v" path="res://shaders/background.gdshader" id="7_bgshader"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_bg"]
+shader = ExtResource("7_bgshader")
+shader_parameter/time_speed = 0.8
+shader_parameter/flip_y = false
+shader_parameter/sea_color_dark = Color(0.04, 0.32, 0.55, 1)
+shader_parameter/sea_color_light = Color(0.06, 0.47, 0.6, 1)
+shader_parameter/refraction_color = Color(0.96, 0.98, 0.86, 1)
+shader_parameter/light_shaft_color = Color(0.88, 0.9, 0.78, 1)
+shader_parameter/target_sea_color_dark = Color(0.04, 0.32, 0.55, 1)
+shader_parameter/target_sea_color_light = Color(0.06, 0.47, 0.6, 1)
+shader_parameter/target_refraction_color = Color(0.96, 0.98, 0.86, 1)
+shader_parameter/target_light_shaft_color = Color(0.88, 0.9, 0.78, 1)
+shader_parameter/color_blend = 0.0
 
 [sub_resource type="Gradient" id="Gradient_ambient"]
 colors = PackedColorArray(0.3, 0.8, 1, 0.6, 0.3, 0.8, 1, 0)
@@ -87,8 +101,8 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
 
-[node name="AnimatedBG" type="TextureRect" parent="BackgroundLayer"]
-modulate = Color(0.1, 0.6, 0.15, 1)
+[node name="AnimatedBG" type="ColorRect" parent="BackgroundLayer"]
+material = SubResource("ShaderMaterial_bg")
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -96,8 +110,6 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
-texture = ExtResource("2_0wfyh")
-stretch_mode = 1
 
 [node name="Vignette" type="ColorRect" parent="BackgroundLayer"]
 layout_mode = 1
@@ -144,10 +156,13 @@ grow_vertical = 2
 mouse_filter = 2
 
 [node name="DrawButton" type="Button" parent="UILayer"]
-layout_mode = 0
-offset_left = 1008.0
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -144.0
 offset_top = 294.0
-offset_right = 1130.0
+offset_right = -22.0
 offset_bottom = 380.0
 pivot_offset = Vector2(61, 43)
 theme_override_colors/font_color = Color(1, 0.9, 0.7, 1)
@@ -159,10 +174,13 @@ theme_override_styles/hover = SubResource("StyleBoxFlat_button_hover")
 text = "Draw Card"
 
 [node name="RestartButton" type="Button" parent="UILayer"]
-layout_mode = 0
-offset_left = 1010.0
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -142.0
 offset_top = 138.0
-offset_right = 1130.0
+offset_right = -22.0
 offset_bottom = 200.0
 pivot_offset = Vector2(60, 31)
 theme_override_colors/font_color = Color(1, 0.9, 0.7, 1)
@@ -174,7 +192,7 @@ theme_override_styles/hover = SubResource("StyleBoxFlat_button_hover")
 text = "Restart"
 
 [node name="ScoreLabel" type="Label" parent="UILayer"]
-layout_mode = 0
+layout_mode = 1
 offset_left = 30.0
 offset_top = 70.0
 offset_right = 250.0
@@ -187,7 +205,7 @@ theme_override_font_sizes/font_size = 28
 text = "Score: 0"
 
 [node name="DeckLabel" type="Label" parent="UILayer"]
-layout_mode = 0
+layout_mode = 1
 offset_left = 30.0
 offset_top = 30.0
 offset_right = 250.0
@@ -200,7 +218,7 @@ theme_override_font_sizes/font_size = 22
 text = "Cards: 52"
 
 [node name="ComboLabel" type="Label" parent="UILayer"]
-layout_mode = 0
+layout_mode = 1
 offset_left = 30.0
 offset_top = 110.0
 offset_right = 250.0

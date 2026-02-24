@@ -10,6 +10,7 @@ var combo_count: int = 0
 var cards_drawn_this_game: int = 0
 var restart_button_visible: bool = false
 var is_first_start: bool = true
+var is_paused: bool = false
 
 var bgm_themes = [
 	preload("res://background_music/Aylex - Last Summer (freetouse.com).mp3"),
@@ -44,6 +45,63 @@ var crt_rect: ColorRect
 var crt_material: ShaderMaterial
 var crt_shader = preload("res://shaders/crt.gdshader")
 
+# Background shader material reference
+var bg_shader_material: ShaderMaterial = null
+var _bg_color_tween: Tween = null
+
+# Color themes for random background on restart
+var color_themes: Array = [
+	{  # Ocean Blue
+		"dark": Color(0.04, 0.32, 0.55, 1),
+		"light": Color(0.06, 0.47, 0.60, 1),
+		"refraction": Color(0.96, 0.98, 0.86, 1),
+		"shaft": Color(0.88, 0.90, 0.78, 1)
+	},
+	{  # Emerald Green
+		"dark": Color(0.04, 0.35, 0.18, 1),
+		"light": Color(0.08, 0.55, 0.30, 1),
+		"refraction": Color(0.80, 0.98, 0.75, 1),
+		"shaft": Color(0.70, 0.92, 0.65, 1)
+	},
+	{  # Crimson Red
+		"dark": Color(0.40, 0.08, 0.08, 1),
+		"light": Color(0.60, 0.15, 0.12, 1),
+		"refraction": Color(1.0, 0.85, 0.75, 1),
+		"shaft": Color(0.95, 0.75, 0.65, 1)
+	},
+	{  # Royal Purple
+		"dark": Color(0.15, 0.05, 0.35, 1),
+		"light": Color(0.30, 0.10, 0.55, 1),
+		"refraction": Color(0.70, 0.50, 0.90, 1),
+		"shaft": Color(0.60, 0.40, 0.80, 1)
+	},
+	{  # Sunset Orange
+		"dark": Color(0.45, 0.18, 0.05, 1),
+		"light": Color(0.65, 0.30, 0.08, 1),
+		"refraction": Color(1.0, 0.90, 0.60, 1),
+		"shaft": Color(0.95, 0.80, 0.50, 1)
+	},
+	{  # Deep Teal
+		"dark": Color(0.02, 0.25, 0.30, 1),
+		"light": Color(0.05, 0.40, 0.45, 1),
+		"refraction": Color(0.75, 0.95, 0.90, 1),
+		"shaft": Color(0.65, 0.88, 0.82, 1)
+	},
+	{  # Golden Amber
+		"dark": Color(0.35, 0.25, 0.05, 1),
+		"light": Color(0.55, 0.40, 0.10, 1),
+		"refraction": Color(1.0, 0.95, 0.70, 1),
+		"shaft": Color(0.95, 0.88, 0.55, 1)
+	},
+	{  # Midnight Blue
+		"dark": Color(0.03, 0.05, 0.25, 1),
+		"light": Color(0.08, 0.12, 0.45, 1),
+		"refraction": Color(0.70, 0.75, 0.95, 1),
+		"shaft": Color(0.60, 0.65, 0.88, 1)
+	},
+]
+var current_theme_index: int = -1
+
 # --- SETTINGS (loaded from GameSettings autoload) ---
 func get_crt_enabled() -> bool:
 	return GameSettings.crt_enabled if Engine.has_singleton("GameSettings") or get_node_or_null("/root/GameSettings") else true
@@ -58,11 +116,40 @@ func get_glitch_intensity() -> float:
 func _ready():
 	original_position = position
 	setup_glitch_shader()
-	setup_crt_shader()        # <-- was missing, now added
+	setup_crt_shader()
+	setup_bg_shader()
+	_apply_display_to_scene()
 	animate_intro()
 	start_new_game()
 	setup_music()
 	start_background_animation()
+
+# NEW: called on _ready to apply saved display settings inside the game scene
+func _apply_display_to_scene():
+	var gs = get_node_or_null("/root/GameSettings")
+	if not gs:
+		return
+
+	# Apply display mode & window size (in case user launched directly into game)
+	gs.apply_display_settings()
+
+	# Update CRT resolution uniform to match actual window size
+	var win_size = Vector2(DisplayServer.window_get_size())
+	if crt_material:
+		crt_material.set_shader_parameter("resolution", win_size)
+
+	# Apply CRT visibility
+	if crt_rect:
+		crt_rect.visible = gs.crt_enabled
+
+	# Apply glitch visibility
+	if glitch_rect:
+		glitch_rect.visible = gs.glitch_enabled
+
+	# Apply music volume
+	if has_node("MusicPlayer"):
+		var vol = gs.music_volume
+		$MusicPlayer.volume_db = linear_to_db(vol) if vol > 0.0 else -80.0
 
 func _process(delta):
 	if screen_shake_intensity > 0:
@@ -144,20 +231,78 @@ func apply_crt_setting():
 		var enabled = get_node_or_null("/root/GameSettings").crt_enabled if get_node_or_null("/root/GameSettings") else true
 		crt_rect.visible = enabled
 
+# --- BACKGROUND SHADER ---
+func setup_bg_shader():
+	if has_node("BackgroundLayer/AnimatedBG"):
+		var bg = $BackgroundLayer/AnimatedBG
+		if bg.material is ShaderMaterial:
+			bg_shader_material = bg.material
+
+func transition_bg_color(theme: Dictionary, duration: float = 1.5):
+	if bg_shader_material == null:
+		return
+
+	# Kill previous color transition
+	if _bg_color_tween and _bg_color_tween.is_valid():
+		_bg_color_tween.kill()
+
+	# Copy current colors into the base uniforms (so we blend FROM them)
+	# The current visual is at whatever blend was — bake it
+	var current_blend = bg_shader_material.get_shader_parameter("color_blend")
+	if current_blend > 0.0:
+		var cur_dark = bg_shader_material.get_shader_parameter("sea_color_dark")
+		var cur_light = bg_shader_material.get_shader_parameter("sea_color_light")
+		var cur_refr = bg_shader_material.get_shader_parameter("refraction_color")
+		var cur_shaft = bg_shader_material.get_shader_parameter("light_shaft_color")
+		var tgt_dark = bg_shader_material.get_shader_parameter("target_sea_color_dark")
+		var tgt_light = bg_shader_material.get_shader_parameter("target_sea_color_light")
+		var tgt_refr = bg_shader_material.get_shader_parameter("target_refraction_color")
+		var tgt_shaft = bg_shader_material.get_shader_parameter("target_light_shaft_color")
+
+		# Bake the interpolated color as the new base
+		bg_shader_material.set_shader_parameter("sea_color_dark", cur_dark.lerp(tgt_dark, current_blend))
+		bg_shader_material.set_shader_parameter("sea_color_light", cur_light.lerp(tgt_light, current_blend))
+		bg_shader_material.set_shader_parameter("refraction_color", cur_refr.lerp(tgt_refr, current_blend))
+		bg_shader_material.set_shader_parameter("light_shaft_color", cur_shaft.lerp(tgt_shaft, current_blend))
+
+	# Set new target colors
+	bg_shader_material.set_shader_parameter("target_sea_color_dark", theme["dark"])
+	bg_shader_material.set_shader_parameter("target_sea_color_light", theme["light"])
+	bg_shader_material.set_shader_parameter("target_refraction_color", theme["refraction"])
+	bg_shader_material.set_shader_parameter("target_light_shaft_color", theme["shaft"])
+	bg_shader_material.set_shader_parameter("color_blend", 0.0)
+
+	# Smoothly animate blend from 0 to 1
+	_bg_color_tween = create_tween()
+	_bg_color_tween.tween_method(
+		func(val: float):
+			if bg_shader_material:
+				bg_shader_material.set_shader_parameter("color_blend", val),
+		0.0,
+		1.0,
+		duration
+	).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+
+func pick_random_theme() -> Dictionary:
+	var new_index = randi() % color_themes.size()
+	if color_themes.size() > 1:
+		while new_index == current_theme_index:
+			new_index = randi() % color_themes.size()
+	current_theme_index = new_index
+	return color_themes[current_theme_index]
+
 # --- FUNCTIONS ---
 func animate_intro():
 	modulate.a = 1.0
 	
 	if has_node("UILayer"):
 		for child in $UILayer.get_children():
-			# Skip both RestartButton and DrawButton — they are managed by start_new_game
 			if child.name == "RestartButton":
 				child.modulate.a = 0
 				child.scale = Vector2(0.8, 0.8)
 				child.disabled = true
 				continue
 			if child.name == "DrawButton":
-				# Start hidden — start_new_game will reveal it
 				child.modulate.a = 0
 				child.disabled = true
 				continue
@@ -175,26 +320,34 @@ func animate_intro():
 		hand_tween.tween_property($Hand, "modulate:a", 1.0, 0.5).set_delay(0.4).set_trans(Tween.TRANS_SINE)
 
 func start_background_animation():
-	if has_node("BackgroundLayer/AnimatedBG"):
-		var bg = $BackgroundLayer/AnimatedBG
-		pulse_background(bg)
-	
 	if has_node("AmbientParticles"):
 		$AmbientParticles.emitting = true
-
-func pulse_background(bg: Control):
-	var pulse_tween = create_tween().set_loops()
-	pulse_tween.tween_property(bg, "modulate", Color(0.12, 0.65, 0.18, 1), 3.0).set_trans(Tween.TRANS_SINE)
-	pulse_tween.tween_property(bg, "modulate", Color(0.08, 0.55, 0.12, 1), 3.0).set_trans(Tween.TRANS_SINE)
 
 
 func start_new_game():
 	combo_count = 0
 	cards_drawn_this_game = 0
 	restart_button_visible = false
-	can_draw = false  # Block drawing during cleanup
+	can_draw = false
 	
-	# Hide draw button during cleanup (don't animate if first start — it's already hidden)
+	# Transition to a random color theme
+	var theme = pick_random_theme()
+	if is_first_start:
+		# On first start, set colors instantly (no transition from nothing)
+		if bg_shader_material:
+			bg_shader_material.set_shader_parameter("sea_color_dark", theme["dark"])
+			bg_shader_material.set_shader_parameter("sea_color_light", theme["light"])
+			bg_shader_material.set_shader_parameter("refraction_color", theme["refraction"])
+			bg_shader_material.set_shader_parameter("light_shaft_color", theme["shaft"])
+			bg_shader_material.set_shader_parameter("target_sea_color_dark", theme["dark"])
+			bg_shader_material.set_shader_parameter("target_sea_color_light", theme["light"])
+			bg_shader_material.set_shader_parameter("target_refraction_color", theme["refraction"])
+			bg_shader_material.set_shader_parameter("target_light_shaft_color", theme["shaft"])
+			bg_shader_material.set_shader_parameter("color_blend", 0.0)
+	else:
+		transition_bg_color(theme, 2.0)
+	
+	# Hide draw button during cleanup
 	if has_node("UILayer/DrawButton"):
 		var draw_btn = $UILayer/DrawButton
 		draw_btn.disabled = true
@@ -202,7 +355,7 @@ func start_new_game():
 			var hide_draw = create_tween()
 			hide_draw.tween_property(draw_btn, "modulate:a", 0.3, 0.1)
 	
-	# Hide restart button at start using disabled
+	# Hide restart button at start
 	if has_node("UILayer/RestartButton"):
 		var btn = $UILayer/RestartButton
 		btn.disabled = true
@@ -218,10 +371,9 @@ func start_new_game():
 			exit_tween.parallel().tween_property(child, "modulate:a", 0, 0.3)
 			exit_tween.tween_callback(child.queue_free)
 	
-	# Also cleanup any reparented releasing cards still floating around
 	releasing_cards.clear()
 	
-	# --- Cards fly away ALL AT ONCE (like release animation) ---
+	# --- Cards fly away ALL AT ONCE ---
 	var children = hand_container.get_children()
 	var has_cards = children.size() > 0
 	
@@ -247,15 +399,13 @@ func start_new_game():
 	
 	if has_cards:
 		flash_screen(Color(1, 1, 1, 0.2), 0.15)
-		# Wait for fly-away to finish before allowing draw
 		await get_tree().create_timer(0.4).timeout
 	elif is_first_start:
-		# First game start — wait for intro animations to settle
 		await get_tree().create_timer(0.6).timeout
 	
 	is_first_start = false
 	
-	# Show draw button with a nice entrance
+	# Show draw button
 	can_draw = true
 	if has_node("UILayer/DrawButton"):
 		var draw_btn = $UILayer/DrawButton
@@ -295,6 +445,7 @@ func update_ui():
 			pulse_label($UILayer/DeckLabel, Color.ORANGE)
 	if has_node("UILayer/ScoreLabel"): 
 		target_score = score
+		$UILayer/ScoreLabel.text = "Score: " + str(score)
 
 func pulse_label(label: Label, color: Color):
 	var original_color = label.modulate
@@ -312,21 +463,23 @@ func setup_music():
 	if bgm_themes.size() == 0:
 		return
 	
-	# Make music immune to pause (freeze_frame won't stop it)
 	$MusicPlayer.process_mode = Node.PROCESS_MODE_ALWAYS
 	
-	# Connect finished signal to play next song
+	# Apply saved volume
+	var gs = get_node_or_null("/root/GameSettings")
+	if gs:
+		var vol = gs.music_volume
+		$MusicPlayer.volume_db = linear_to_db(vol) if vol > 0.0 else -80.0
+	
 	if not $MusicPlayer.finished.is_connected(_on_music_finished):
 		$MusicPlayer.finished.connect(_on_music_finished)
 	
-	# Start playing
 	play_next_bgm()
 
 func play_next_bgm():
 	if not has_node("MusicPlayer") or bgm_themes.size() == 0:
 		return
 	
-	# Pick a random song that isn't the same as current
 	var new_index = randi() % bgm_themes.size()
 	if bgm_themes.size() > 1:
 		while new_index == current_bgm_index:
@@ -337,7 +490,6 @@ func play_next_bgm():
 	$MusicPlayer.play()
 
 func _on_music_finished():
-	# When a song ends, play the next one
 	play_next_bgm()
 
 func format_number(num: int) -> String:
@@ -358,7 +510,7 @@ func shake_screen(intensity: float = 10.0):
 	var gs = get_node_or_null("/root/GameSettings")
 	if gs and not gs.screen_shake_enabled:
 		return
-	var gs_scale = gs.screen_shake_intensity if gs else 1.0  # renamed from 'scale'
+	var gs_scale = gs.screen_shake_intensity if gs else 1.0
 	screen_shake_intensity = max(screen_shake_intensity, intensity * gs_scale)
 
 func flash_screen(color: Color, duration: float = 0.1):
@@ -378,10 +530,9 @@ func glitch_effect(intensity: float = 1.0):
 	var gs = get_node_or_null("/root/GameSettings")
 	if gs and not gs.glitch_enabled:
 		return
-	var gs_scale = gs.glitch_intensity if gs else 1.0  # renamed from 'scale'
+	var gs_scale = gs.glitch_intensity if gs else 1.0
 	intensity *= gs_scale
 
-	# === SHADER GLITCH — much more aggressive values ===
 	if glitch_material:
 		var glitch_rate = clamp(intensity * 0.55, 0.0, 1.0)
 		var glitch_power = clamp(intensity * 0.06, 0.0, 0.25)
@@ -395,11 +546,8 @@ func glitch_effect(intensity: float = 1.0):
 		glitch_material.set_shader_parameter("shake_speed", glitch_speed)
 		glitch_material.set_shader_parameter("shake_block_size", glitch_block)
 
-		# Multi-burst: hit hard, ease back to normal
 		var shader_tween = create_tween()
-		# Hold peak for a moment
 		shader_tween.tween_interval(0.05 + intensity * 0.03)
-		# Then fade out
 		shader_tween.tween_method(
 			func(val: float):
 				if glitch_material:
@@ -413,7 +561,6 @@ func glitch_effect(intensity: float = 1.0):
 			0.25 + intensity * 0.18
 		).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 
-	# === SCANLINE STRIPS ===
 	var viewport_size = get_viewport_rect().size
 	if viewport_size == Vector2.ZERO:
 		viewport_size = Vector2(1152, 648)
@@ -442,7 +589,6 @@ func glitch_effect(intensity: float = 1.0):
 		strip_tween.tween_property(strip, "modulate:a", 0.0, randf_range(0.06, 0.18))
 		strip_tween.tween_callback(strip.queue_free).set_delay(0.2)
 
-	# === SCREEN SLICE ===
 	if intensity > 0.4:
 		for j in range(randi_range(2, 4)):
 			var slice = ColorRect.new()
@@ -460,7 +606,6 @@ func glitch_effect(intensity: float = 1.0):
 			slice_tween.tween_property(slice, "modulate:a", 0.0, 0.07)
 			slice_tween.tween_callback(slice.queue_free)
 
-	# === RGB SPLIT ===
 	if intensity > 0.5:
 		var red_rect = ColorRect.new()
 		red_rect.size = viewport_size
@@ -484,7 +629,6 @@ func glitch_effect(intensity: float = 1.0):
 		rgb_tween.tween_callback(red_rect.queue_free).set_delay(0.12)
 		rgb_tween.tween_callback(blue_rect.queue_free).set_delay(0.12)
 
-	# === POSITION JITTER ===
 	var jitter_intensity = intensity * 5.0
 	var glitch_tween = create_tween()
 	glitch_tween.tween_property(self, "position", original_position + Vector2(randf_range(-jitter_intensity, jitter_intensity), randf_range(-jitter_intensity * 0.5, jitter_intensity * 0.5)), 0.02)
@@ -504,7 +648,6 @@ func _on_restart_button_pressed():
 		glitch_effect(2.5)
 		flash_screen(Color(1, 0.3, 0.1, 0.2), 0.2)
 		
-		# Small delay so the button juice plays out before resetting
 		await get_tree().create_timer(0.1).timeout
 		start_new_game()
 
@@ -539,14 +682,12 @@ func _on_draw_button_pressed():
 		reflow_hand()
 		animate_card_entry(new_card)
 		
-		# Show restart button after 3 cards drawn
 		if cards_drawn_this_game >= 3:
 			reveal_restart_button()
 		
 		await get_tree().create_timer(0.2).timeout
 		can_draw = true
 	elif deck.size() == 0:
-		# No cards left — shake to indicate
 		shake_screen(6.0)
 		glitch_effect(2.5)
 		flash_screen(Color(1, 0.5, 0, 0.15), 0.15)
@@ -619,11 +760,9 @@ func process_match(indices, nodes):
 		var points = int(total_sum * combo_multiplier)
 		score += points
 		
-		# Mark cards as releasing so they're excluded from active hand
 		for n in nodes:
 			releasing_cards.append(n)
 		
-		# FREEZE FRAME for impact
 		await freeze_frame(0.05)
 		
 		shake_screen(15.0)
@@ -642,14 +781,11 @@ func process_match(indices, nodes):
 			shake_screen(22.0)
 			flash_screen(Color(1, 0.5, 0, 0.3), 0.2)
 		
-		# --- Capture positions BEFORE we start animating ---
-		# Get remaining cards and their current global positions
 		var remaining_cards = hand_container.get_children().filter(func(c): return !c.is_queued_for_deletion() and c.visible and c not in releasing_cards)
 		var old_positions = {}
 		for card in remaining_cards:
 			old_positions[card] = card.global_position
 		
-		# Epic card release animation (original style)
 		for i in range(nodes.size()):
 			var n = nodes[i]
 			n.is_selected = false
@@ -657,7 +793,6 @@ func process_match(indices, nodes):
 			
 			spawn_particles_at(n.global_position + Vector2(60, 100))
 			
-			# Reparent the card out of the HBoxContainer so it doesn't affect layout
 			var global_pos = n.global_position
 			hand_container.remove_child(n)
 			add_child(n)
@@ -672,23 +807,18 @@ func process_match(indices, nodes):
 			rel.tween_property(n, "modulate:a", 0.0, 0.25).set_delay(0.05)
 			rel.tween_property(n, "scale", Vector2(0.5, 0.5), 0.35)
 		
-		# Now the HBoxContainer has already repositioned remaining cards instantly.
-		# We counter that by offsetting them back to their old positions, then tweening to new.
 		await get_tree().process_frame
 		
 		for card in remaining_cards:
 			if is_instance_valid(card) and card in old_positions:
 				var new_global_pos = card.global_position
 				var offset = old_positions[card] - new_global_pos
-				# Temporarily shift back to old visual position
 				card.position.x += offset.x
-				# Smoothly slide to new position
 				var slide = create_tween()
 				slide.tween_property(card, "position:x", card.position.x - offset.x, 0.35).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 		
 		reflow_hand()
 		
-		# Wait for everything to finish
 		await get_tree().create_timer(0.45).timeout
 		
 		for n in nodes:
@@ -800,3 +930,225 @@ func is_card_clickable(card_node: Control) -> bool:
 	var total = active_cards.size()
 	if total <= 3: return true
 	return idx in [0, 1, 2, total-3, total-2, total-1]
+
+
+
+# --- PAUSE MENU ---
+
+func _input(event):
+	if event.is_action_pressed("ui_cancel"):
+		if is_paused:
+			resume_game()
+		else:
+			pause_game()
+
+func pause_game():
+	if is_paused:
+		return
+	is_paused = true
+	get_tree().paused = true
+	open_pause_menu()
+
+func resume_game():
+	if not is_paused:
+		return
+	is_paused = false
+	get_tree().paused = false
+	close_pause_menu()
+
+func open_pause_menu():
+	if has_node("PauseMenu"):
+		return
+
+	# Dim overlay
+	var dim = ColorRect.new()
+	dim.name = "PauseDim"
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	dim.color = Color(0, 0, 0, 0)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	dim.z_index = 150
+	dim.process_mode = Node.PROCESS_MODE_ALWAYS
+	add_child(dim)
+
+	var dim_tween = dim.create_tween()
+	dim_tween.tween_property(dim, "color:a", 0.6, 0.2)
+
+	# Panel container
+	var panel = PanelContainer.new()
+	panel.name = "PauseMenu"
+	panel.z_index = 200
+	panel.process_mode = Node.PROCESS_MODE_ALWAYS
+
+	var style = StyleBoxFlat.new()
+	style.bg_color = Color(0.06, 0.04, 0.12, 0.97)
+	style.border_width_left = 2
+	style.border_width_top = 2
+	style.border_width_right = 2
+	style.border_width_bottom = 2
+	style.border_color = Color(0.8, 0.6, 0.2, 0.9)
+	style.corner_radius_top_left = 12
+	style.corner_radius_top_right = 12
+	style.corner_radius_bottom_right = 12
+	style.corner_radius_bottom_left = 12
+	style.shadow_size = 16
+	style.shadow_color = Color(0, 0, 0, 0.7)
+	panel.add_theme_stylebox_override("panel", style)
+
+	panel.anchor_left = 0.5
+	panel.anchor_top = 0.5
+	panel.anchor_right = 0.5
+	panel.anchor_bottom = 0.5
+	panel.offset_left = -200.0
+	panel.offset_top = -220.0
+	panel.offset_right = 200.0
+	panel.offset_bottom = 220.0
+	panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	panel.grow_vertical = Control.GROW_DIRECTION_BOTH
+
+	var margin = MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 32)
+	margin.add_theme_constant_override("margin_right", 32)
+	margin.add_theme_constant_override("margin_top", 32)
+	margin.add_theme_constant_override("margin_bottom", 32)
+	panel.add_child(margin)
+
+	var vbox = VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 16)
+	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	margin.add_child(vbox)
+
+	# Title
+	var title = Label.new()
+	title.text = "Paused"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_override("font", custom_font)
+	title.add_theme_font_size_override("font_size", 40)
+	title.add_theme_color_override("font_color", Color(1, 0.85, 0.3, 1))
+	title.add_theme_color_override("font_outline_color", Color(0, 0, 0, 1))
+	title.add_theme_constant_override("outline_size", 4)
+	vbox.add_child(title)
+
+	vbox.add_child(HSeparator.new())
+
+	var spacer = Control.new()
+	spacer.custom_minimum_size = Vector2(0, 8)
+	vbox.add_child(spacer)
+
+	# Resume button
+	var resume_style = StyleBoxFlat.new()
+	resume_style.bg_color = Color(0.75, 0.55, 0.1, 1)
+	resume_style.border_width_left = 3
+	resume_style.border_width_top = 3
+	resume_style.border_width_right = 3
+	resume_style.border_width_bottom = 3
+	resume_style.border_color = Color(1, 0.85, 0.3, 1)
+	resume_style.corner_radius_top_left = 8
+	resume_style.corner_radius_top_right = 8
+	resume_style.corner_radius_bottom_right = 8
+	resume_style.corner_radius_bottom_left = 8
+	resume_style.shadow_color = Color(0.3, 0.2, 0, 0.6)
+	resume_style.shadow_size = 5
+
+	var resume_style_hover = resume_style.duplicate()
+	resume_style_hover.bg_color = Color(0.9, 0.7, 0.15, 1)
+	resume_style_hover.border_color = Color(1, 0.95, 0.5, 1)
+	resume_style_hover.shadow_color = Color(1, 0.8, 0.2, 0.35)
+	resume_style_hover.shadow_size = 8
+
+	var resume_btn = Button.new()
+	resume_btn.text = "Resume"
+	resume_btn.custom_minimum_size = Vector2(280, 60)
+	resume_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	resume_btn.add_theme_font_override("font", custom_font)
+	resume_btn.add_theme_font_size_override("font_size", 24)
+	resume_btn.add_theme_color_override("font_color", Color(0.08, 0.04, 0, 1))
+	resume_btn.add_theme_color_override("font_hover_color", Color(0.04, 0.02, 0, 1))
+	resume_btn.add_theme_stylebox_override("normal", resume_style)
+	resume_btn.add_theme_stylebox_override("hover", resume_style_hover)
+	resume_btn.process_mode = Node.PROCESS_MODE_ALWAYS
+	resume_btn.pressed.connect(func():
+		button_press_effect(resume_btn)
+		await get_tree().create_timer(0.1, true, false, true).timeout
+		resume_game()
+	)
+	vbox.add_child(resume_btn)
+
+	# Main Menu button
+	var menu_style = StyleBoxFlat.new()
+	menu_style.bg_color = Color(0.12, 0.08, 0.20, 0.9)
+	menu_style.border_width_left = 2
+	menu_style.border_width_top = 2
+	menu_style.border_width_right = 2
+	menu_style.border_width_bottom = 2
+	menu_style.border_color = Color(0.7, 0.55, 0.2, 0.7)
+	menu_style.corner_radius_top_left = 8
+	menu_style.corner_radius_top_right = 8
+	menu_style.corner_radius_bottom_right = 8
+	menu_style.corner_radius_bottom_left = 8
+	menu_style.shadow_color = Color(0, 0, 0, 0.3)
+	menu_style.shadow_size = 3
+
+	var menu_style_hover = menu_style.duplicate()
+	menu_style_hover.bg_color = Color(0.20, 0.14, 0.35, 1)
+	menu_style_hover.border_color = Color(0.9, 0.7, 0.3, 1)
+	menu_style_hover.shadow_color = Color(0.8, 0.6, 0.2, 0.25)
+	menu_style_hover.shadow_size = 6
+
+	var menu_btn = Button.new()
+	menu_btn.text = "Main Menu"
+	menu_btn.custom_minimum_size = Vector2(280, 55)
+	menu_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	menu_btn.add_theme_font_override("font", custom_font)
+	menu_btn.add_theme_font_size_override("font_size", 22)
+	menu_btn.add_theme_color_override("font_color", Color(0.9, 0.8, 0.55, 0.9))
+	menu_btn.add_theme_color_override("font_hover_color", Color(1, 0.9, 0.6, 1))
+	menu_btn.add_theme_stylebox_override("normal", menu_style)
+	menu_btn.add_theme_stylebox_override("hover", menu_style_hover)
+	menu_btn.process_mode = Node.PROCESS_MODE_ALWAYS
+	menu_btn.pressed.connect(func():
+		button_press_effect(menu_btn)
+		shake_screen(6.0)
+		glitch_effect(2.0)
+		# Unpause before switching scene
+		get_tree().paused = false
+		is_paused = false
+		await get_tree().create_timer(0.12, true, false, true).timeout
+		var transition = get_tree().root.get_node_or_null("SceneTransition")
+		if transition:
+			transition.transition_with_fade("res://scenes/menu.tscn", 0.5)
+		else:
+			get_tree().change_scene_to_file("res://scenes/menu.tscn")
+	)
+	vbox.add_child(menu_btn)
+
+	add_child(panel)
+
+	# Entrance animation
+	panel.modulate.a = 0
+	panel.scale = Vector2(0.85, 0.85)
+	panel.pivot_offset = Vector2(
+		(panel.offset_right - panel.offset_left) / 2.0,
+		(panel.offset_bottom - panel.offset_top) / 2.0
+	)
+	var open_tween = panel.create_tween().set_parallel(true)
+	open_tween.set_process_mode(Tween.TWEEN_PROCESS_IDLE)
+	open_tween.tween_property(panel, "modulate:a", 1.0, 0.2)
+	open_tween.tween_property(panel, "scale", Vector2(1.0, 1.0), 0.28).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+func close_pause_menu():
+	var dim = get_node_or_null("PauseDim")
+	var panel = get_node_or_null("PauseMenu")
+
+	if panel and is_instance_valid(panel):
+		panel.process_mode = Node.PROCESS_MODE_ALWAYS
+		var close_tween = panel.create_tween().set_parallel(true)
+		close_tween.set_process_mode(Tween.TWEEN_PROCESS_IDLE)
+		close_tween.tween_property(panel, "modulate:a", 0.0, 0.15)
+		close_tween.tween_property(panel, "scale", Vector2(0.88, 0.88), 0.15)
+		close_tween.tween_callback(panel.queue_free).set_delay(0.16)
+
+	if dim and is_instance_valid(dim):
+		var dim_tween = dim.create_tween()
+		dim_tween.set_process_mode(Tween.TWEEN_PROCESS_IDLE)
+		dim_tween.tween_property(dim, "color:a", 0.0, 0.15)
+		dim_tween.tween_callback(dim.queue_free)

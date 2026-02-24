@@ -4,7 +4,6 @@ var floating_cards: Array = []
 var card_fan_nodes: Array = []
 var time_elapsed: float = 0.0
 var title_base_y: float = 0.0
-var bg_base_modulate: Color
 var is_transitioning: bool = false
 var original_position: Vector2
 var screen_shake_intensity: float = 0.0
@@ -34,9 +33,6 @@ var fan_card_paths = [
 func _ready():
 	modulate.a = 0
 	original_position = position
-
-	if has_node("Background"):
-		bg_base_modulate = $Background.modulate
 
 	setup_glitch_shader()
 	setup_crt_shader()
@@ -75,16 +71,6 @@ func _process(delta):
 			if node.position.y > get_viewport_rect().size.y + 100:
 				node.position.y = -200
 				node.position.x = randf_range(0, get_viewport_rect().size.x)
-
-	# Subtle background breathing
-	if has_node("Background") and bg_base_modulate != null:
-		var breath = sin(time_elapsed * 0.8) * 0.03
-		$Background.modulate = Color(
-			bg_base_modulate.r + breath,
-			bg_base_modulate.g + breath * 1.5,
-			bg_base_modulate.b + breath,
-			1.0
-		)
 
 func shake_screen(intensity: float = 8.0):
 	screen_shake_intensity = intensity
@@ -164,7 +150,7 @@ func glitch_effect(intensity: float = 1.0):
 	var gs = get_node_or_null("/root/GameSettings")
 	if gs and not gs.glitch_enabled:
 		return
-	var gs_scale = gs.glitch_intensity if gs else 1.0  # renamed from 'scale'
+	var gs_scale = gs.glitch_intensity if gs else 1.0
 	intensity *= gs_scale
 
 	if glitch_material:
@@ -381,7 +367,7 @@ func animate_entrance():
 		var sub_tween = create_tween()
 		sub_tween.tween_property(sub, "modulate:a", 1.0, 0.5).set_delay(0.6)
 
-	# Buttons — Play, HowToPlay, Settings, Exit in order
+	# Buttons — include CreditsButton between Settings and Exit
 	var buttons = []
 	if has_node("CenterContainer/PlayButton"):
 		buttons.append($CenterContainer/PlayButton)
@@ -389,6 +375,8 @@ func animate_entrance():
 		buttons.append($CenterContainer/HowToPlayButton)
 	if has_node("CenterContainer/SettingsButton"):
 		buttons.append($CenterContainer/SettingsButton)
+	if has_node("CenterContainer/CreditsButton"):
+		buttons.append($CenterContainer/CreditsButton)
 	if has_node("CenterContainer/ExitButton"):
 		buttons.append($CenterContainer/ExitButton)
 
@@ -481,12 +469,13 @@ func _on_settings_button_pressed():
 	glitch_effect(1.2)
 	open_settings()
 
-func _on_exit_button_pressed():
-	button_press_effect($CenterContainer/ExitButton)
-	shake_screen(5.0)
-	glitch_effect(2.0)
-	await get_tree().create_timer(0.2).timeout
-	get_tree().quit()
+func _on_credits_button_pressed():
+	if is_transitioning:
+		return
+	button_press_effect($CenterContainer/CreditsButton)
+	shake_screen(3.0)
+	glitch_effect(1.0)
+	open_credits()
 
 # -------------------------------------------------------
 # SETTINGS PANEL
@@ -495,19 +484,18 @@ func open_settings():
 	if has_node("SettingsPanel"):
 		return
 
+	# DECLARE gs HERE — this was missing, causing the crash
 	var gs = get_node_or_null("/root/GameSettings")
 	if not gs:
 		push_error("GameSettings autoload not found!")
 		return
 
-	# Dim overlay
 	if has_node("DimOverlay"):
 		$DimOverlay.visible = true
 		$DimOverlay.modulate.a = 0
 		var d = create_tween()
 		d.tween_property($DimOverlay, "modulate:a", 1.0, 0.2)
 
-	# --- Panel ---
 	var panel = PanelContainer.new()
 	panel.name = "SettingsPanel"
 	panel.z_index = 200
@@ -527,15 +515,14 @@ func open_settings():
 	style.shadow_color = Color(0, 0, 0, 0.6)
 	panel.add_theme_stylebox_override("panel", style)
 
-	# Use same anchor approach as HowToPlayPanel
 	panel.anchor_left = 0.5
 	panel.anchor_top = 0.5
 	panel.anchor_right = 0.5
 	panel.anchor_bottom = 0.5
-	panel.offset_left = -230.0
-	panel.offset_top = -240.0
-	panel.offset_right = 230.0
-	panel.offset_bottom = 240.0
+	panel.offset_left = -260.0
+	panel.offset_top = -340.0
+	panel.offset_right = 260.0
+	panel.offset_bottom = 340.0
 	panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	panel.grow_vertical = Control.GROW_DIRECTION_BOTH
 
@@ -547,7 +534,7 @@ func open_settings():
 	panel.add_child(margin)
 
 	var vbox = VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 14)
+	vbox.add_theme_constant_override("separation", 12)
 	margin.add_child(vbox)
 
 	# Title
@@ -561,61 +548,137 @@ func open_settings():
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(title)
 
-	var sep1 = HSeparator.new()
-	vbox.add_child(sep1)
+	vbox.add_child(HSeparator.new())
 
-	# CRT toggle
+	# ── DISPLAY MODE ──
+	vbox.add_child(_make_section_label("Display Mode"))
+	var display_options = OptionButton.new()
+	display_options.add_item("Windowed", 0)
+	display_options.add_item("Fullscreen", 1)
+	display_options.add_item("Exclusive Fullscreen", 2)
+	display_options.selected = gs.display_mode
+	display_options.custom_minimum_size.y = 36
+	display_options.add_theme_font_override("font", custom_font)
+	display_options.item_selected.connect(func(idx: int):
+		gs.display_mode = idx
+		gs.save_settings()
+		gs.apply_display_settings()
+	)
+	vbox.add_child(display_options)
+
+	# ── RESOLUTION ──
+	vbox.add_child(_make_section_label("Resolution  (Windowed only)"))
+	var res_options = OptionButton.new()
+	for r in gs.RESOLUTIONS:
+		res_options.add_item(str(r.x) + " × " + str(r.y))
+	res_options.selected = gs.resolution_index
+	res_options.custom_minimum_size.y = 36
+	res_options.add_theme_font_override("font", custom_font)
+	res_options.item_selected.connect(func(idx: int):
+		gs.resolution_index = idx
+		gs.save_settings()
+		# Always apply — GameSettings.apply_display_settings() handles windowed check
+		if gs.display_mode == 0:
+			gs.apply_display_settings()
+			# Update CRT shader resolution uniform to match new window size
+			_update_crt_resolution()
+	)
+	vbox.add_child(res_options)
+
+	vbox.add_child(HSeparator.new())
+
+	# ── MUSIC VOLUME ──
+	vbox.add_child(_make_section_label("Music Volume"))
+	var music_row = HBoxContainer.new()
+	var music_slider = HSlider.new()
+	music_slider.min_value = 0.0
+	music_slider.max_value = 1.0
+	music_slider.step = 0.01
+	music_slider.value = gs.music_volume
+	music_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	music_slider.custom_minimum_size.y = 28
+	music_slider.value_changed.connect(func(val: float):
+		gs.music_volume = val
+		gs.save_settings()
+		_apply_music_volume(val)
+	)
+	var music_val_lbl = Label.new()
+	music_val_lbl.text = str(int(gs.music_volume * 100)) + "%"
+	music_val_lbl.custom_minimum_size.x = 44
+	music_val_lbl.add_theme_font_override("font", custom_font)
+	music_val_lbl.add_theme_font_size_override("font_size", 15)
+	music_val_lbl.add_theme_color_override("font_color", Color(0.85, 0.82, 0.7, 1))
+	music_slider.value_changed.connect(func(val: float):
+		music_val_lbl.text = str(int(val * 100)) + "%"
+	)
+	music_row.add_child(music_slider)
+	music_row.add_child(music_val_lbl)
+	vbox.add_child(music_row)
+
+	vbox.add_child(HSeparator.new())
+
+	# ── CRT TOGGLE ──
 	vbox.add_child(_make_toggle("CRT Screen Effect", gs.crt_enabled, func(val: bool):
 		gs.crt_enabled = val
 		gs.save_settings()
 		_apply_settings_to_scene()
 	))
 
-	# Glitch toggle
-	vbox.add_child(_make_toggle("Glitch Effect", gs.glitch_enabled, func(val: bool):
-		gs.glitch_enabled = val
-		gs.save_settings()
-		_apply_settings_to_scene()
-	))
-
-	# Glitch intensity
-	vbox.add_child(_make_label("Glitch Intensity"))
+	# ── GLITCH INTENSITY ──
+	vbox.add_child(_make_section_label("Glitch Intensity  (0 = off)"))
+	var glitch_row = HBoxContainer.new()
 	var glitch_slider = HSlider.new()
-	glitch_slider.min_value = 0.1
+	glitch_slider.min_value = 0.0
 	glitch_slider.max_value = 2.0
 	glitch_slider.step = 0.05
-	glitch_slider.value = gs.glitch_intensity
+	glitch_slider.value = gs.glitch_intensity if gs.glitch_enabled else 0.0
+	glitch_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	glitch_slider.custom_minimum_size.y = 28
+	var glitch_val_lbl = Label.new()
+	glitch_val_lbl.text = "%.2f" % glitch_slider.value
+	glitch_val_lbl.custom_minimum_size.x = 44
+	glitch_val_lbl.add_theme_font_override("font", custom_font)
+	glitch_val_lbl.add_theme_font_size_override("font_size", 15)
+	glitch_val_lbl.add_theme_color_override("font_color", Color(0.85, 0.82, 0.7, 1))
 	glitch_slider.value_changed.connect(func(val: float):
 		gs.glitch_intensity = val
+		gs.glitch_enabled = val > 0.0
 		gs.save_settings()
+		glitch_val_lbl.text = "%.2f" % val
 	)
-	vbox.add_child(glitch_slider)
+	glitch_row.add_child(glitch_slider)
+	glitch_row.add_child(glitch_val_lbl)
+	vbox.add_child(glitch_row)
 
-	# Screen shake toggle
-	vbox.add_child(_make_toggle("Screen Shake", gs.screen_shake_enabled, func(val: bool):
-		gs.screen_shake_enabled = val
-		gs.save_settings()
-	))
-
-	# Screen shake intensity
-	vbox.add_child(_make_label("Shake Intensity"))
+	# ── SCREEN SHAKE ──
+	vbox.add_child(_make_section_label("Screen Shake  (0 = off)"))
+	var shake_row = HBoxContainer.new()
 	var shake_slider = HSlider.new()
 	shake_slider.min_value = 0.0
 	shake_slider.max_value = 2.0
 	shake_slider.step = 0.05
-	shake_slider.value = gs.screen_shake_intensity
+	shake_slider.value = gs.screen_shake_intensity if gs.screen_shake_enabled else 0.0
+	shake_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	shake_slider.custom_minimum_size.y = 28
+	var shake_val_lbl = Label.new()
+	shake_val_lbl.text = "%.2f" % shake_slider.value
+	shake_val_lbl.custom_minimum_size.x = 44
+	shake_val_lbl.add_theme_font_override("font", custom_font)
+	shake_val_lbl.add_theme_font_size_override("font_size", 15)
+	shake_val_lbl.add_theme_color_override("font_color", Color(0.85, 0.82, 0.7, 1))
 	shake_slider.value_changed.connect(func(val: float):
 		gs.screen_shake_intensity = val
+		gs.screen_shake_enabled = val > 0.0
 		gs.save_settings()
+		shake_val_lbl.text = "%.2f" % val
 	)
-	vbox.add_child(shake_slider)
+	shake_row.add_child(shake_slider)
+	shake_row.add_child(shake_val_lbl)
+	vbox.add_child(shake_row)
 
-	var sep2 = HSeparator.new()
-	vbox.add_child(sep2)
+	vbox.add_child(HSeparator.new())
 
-	# Close button
+	# ── CLOSE BUTTON ──
 	var close_style = StyleBoxFlat.new()
 	close_style.bg_color = Color(0.15, 0.06, 0.04, 0.85)
 	close_style.border_width_left = 2
@@ -628,17 +691,9 @@ func open_settings():
 	close_style.corner_radius_bottom_right = 8
 	close_style.corner_radius_bottom_left = 8
 
-	var close_style_hover = StyleBoxFlat.new()
+	var close_style_hover = close_style.duplicate()
 	close_style_hover.bg_color = Color(0.25, 0.1, 0.06, 1)
-	close_style_hover.border_width_left = 2
-	close_style_hover.border_width_top = 2
-	close_style_hover.border_width_right = 2
-	close_style_hover.border_width_bottom = 2
 	close_style_hover.border_color = Color(0.9, 0.4, 0.3, 0.9)
-	close_style_hover.corner_radius_top_left = 8
-	close_style_hover.corner_radius_top_right = 8
-	close_style_hover.corner_radius_bottom_right = 8
-	close_style_hover.corner_radius_bottom_left = 8
 
 	var close_btn = Button.new()
 	close_btn.text = "Close"
@@ -650,29 +705,52 @@ func open_settings():
 	close_btn.add_theme_stylebox_override("normal", close_style)
 	close_btn.add_theme_stylebox_override("hover", close_style_hover)
 	close_btn.pressed.connect(func():
+		button_press_effect(close_btn)
 		if has_node("DimOverlay"):
-			button_press_effect($CenterContainer/SettingsButton)
-			shake_screen(4.0)
-			glitch_effect(1.2)
 			var d = create_tween()
 			d.tween_property($DimOverlay, "modulate:a", 0.0, 0.15)
 			d.tween_callback(func(): $DimOverlay.visible = false)
-		var close_tween = create_tween().set_parallel(true)
-		close_tween.tween_property(panel, "modulate:a", 0.0, 0.15)
-		close_tween.tween_property(panel, "scale", Vector2(0.9, 0.9), 0.15)
-		close_tween.tween_callback(panel.queue_free).set_delay(0.16)
+		var t = create_tween().set_parallel(true)
+		t.tween_property(panel, "modulate:a", 0.0, 0.15)
+		t.tween_property(panel, "scale", Vector2(0.9, 0.9), 0.15)
+		t.tween_callback(panel.queue_free).set_delay(0.16)
 	)
 	vbox.add_child(close_btn)
 
 	add_child(panel)
-
-	# Animate in — same as HowToPlayPanel
 	panel.modulate.a = 0
 	panel.scale = Vector2(0.9, 0.9)
 	panel.pivot_offset = panel.size / 2
 	var open_tween = create_tween().set_parallel(true)
 	open_tween.tween_property(panel, "modulate:a", 1.0, 0.2)
 	open_tween.tween_property(panel, "scale", Vector2(1.0, 1.0), 0.25).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+# ── HELPER: apply music volume to any active music player ──
+func _apply_music_volume(val: float):
+	# Menu scene has no music player — apply to Main if it exists
+	var main = get_tree().root.get_node_or_null("Main")
+	if main and main.has_node("MusicPlayer"):
+		main.get_node("MusicPlayer").volume_db = linear_to_db(val) if val > 0.0 else -80.0
+
+# ── HELPER: update CRT shader resolution uniform after window resize ──
+func _update_crt_resolution():
+	var win_size = Vector2(DisplayServer.window_get_size())
+	if crt_material:
+		crt_material.set_shader_parameter("resolution", win_size)
+	# Also update in Main scene if present
+	var main = get_tree().root.get_node_or_null("Main")
+	if main:
+		var crt_node = main.get_node_or_null("CRTCanvas/CRTRect")
+		if crt_node and crt_node.material is ShaderMaterial:
+			crt_node.material.set_shader_parameter("resolution", win_size)
+
+func _make_section_label(text: String) -> Label:
+	var lbl = Label.new()
+	lbl.text = text
+	lbl.add_theme_font_override("font", custom_font)
+	lbl.add_theme_font_size_override("font_size", 16)
+	lbl.add_theme_color_override("font_color", Color(0.75, 0.72, 0.65, 1))
+	return lbl
 
 func _make_toggle(label_text: String, default_val: bool, callback: Callable) -> HBoxContainer:
 	var hbox = HBoxContainer.new()
@@ -715,3 +793,162 @@ func _apply_settings_to_scene():
 		var glitch_node = main.get_node_or_null("GlitchCanvas/GlitchRect")
 		if glitch_node:
 			glitch_node.visible = gs.glitch_enabled
+
+# -------------------------------------------------------
+# CREDITS PANEL
+# -------------------------------------------------------
+func open_credits():
+	if has_node("CreditsPanel"):
+		return
+
+	if has_node("DimOverlay"):
+		$DimOverlay.visible = true
+		$DimOverlay.modulate.a = 0
+		var d = create_tween()
+		d.tween_property($DimOverlay, "modulate:a", 1.0, 0.2)
+
+	var panel = PanelContainer.new()
+	panel.name = "CreditsPanel"
+	panel.z_index = 200
+
+	var style = StyleBoxFlat.new()
+	style.bg_color = Color(0.06, 0.04, 0.02, 0.97)
+	style.border_width_left = 2
+	style.border_width_top = 2
+	style.border_width_right = 2
+	style.border_width_bottom = 2
+	style.border_color = Color(0.7, 0.55, 0.2, 0.9)
+	style.corner_radius_top_left = 12
+	style.corner_radius_top_right = 12
+	style.corner_radius_bottom_right = 12
+	style.corner_radius_bottom_left = 12
+	style.shadow_size = 12
+	style.shadow_color = Color(0, 0, 0, 0.6)
+	panel.add_theme_stylebox_override("panel", style)
+
+	panel.anchor_left = 0.5
+	panel.anchor_top = 0.5
+	panel.anchor_right = 0.5
+	panel.anchor_bottom = 0.5
+	panel.offset_left = -260.0
+	panel.offset_top = -280.0
+	panel.offset_right = 260.0
+	panel.offset_bottom = 280.0
+	panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	panel.grow_vertical = Control.GROW_DIRECTION_BOTH
+
+	var margin = MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 28)
+	margin.add_theme_constant_override("margin_right", 28)
+	margin.add_theme_constant_override("margin_top", 28)
+	margin.add_theme_constant_override("margin_bottom", 28)
+	panel.add_child(margin)
+
+	var vbox = VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 14)
+	margin.add_child(vbox)
+
+	# Title
+	var title = Label.new()
+	title.text = "Credits"
+	title.add_theme_font_size_override("font_size", 32)
+	title.add_theme_color_override("font_color", Color(1, 0.85, 0.3, 1))
+	title.add_theme_color_override("font_outline_color", Color(0.2, 0.1, 0, 1))
+	title.add_theme_constant_override("outline_size", 3)
+	title.add_theme_font_override("font", custom_font)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(title)
+
+	vbox.add_child(HSeparator.new())
+
+	# Credits text
+	var credits_text = [
+		["Game Design & Programming", "NxaSenpai"],
+		["Music", "Aylex, Limujii, Lukrembo, Moavii\n(freetouse.com)"],
+		["Shaders", "CRT & Glitch — Community Godot Shaders"],
+		["Font", "Unitblock by JpJma"],
+	]
+
+	for entry in credits_text:
+		var row = VBoxContainer.new()
+		row.add_theme_constant_override("separation", 2)
+
+		var role_lbl = Label.new()
+		role_lbl.text = entry[0]
+		role_lbl.add_theme_font_override("font", custom_font)
+		role_lbl.add_theme_font_size_override("font_size", 14)
+		role_lbl.add_theme_color_override("font_color", Color(0.75, 0.72, 0.65, 1))
+		role_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		row.add_child(role_lbl)
+
+		var name_lbl = Label.new()
+		name_lbl.text = entry[1]
+		name_lbl.add_theme_font_override("font", custom_font)
+		name_lbl.add_theme_font_size_override("font_size", 19)
+		name_lbl.add_theme_color_override("font_color", Color(0.95, 0.9, 0.75, 1))
+		name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		name_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		row.add_child(name_lbl)
+
+		vbox.add_child(row)
+
+	vbox.add_child(HSeparator.new())
+
+	# Close button
+	var close_style = StyleBoxFlat.new()
+	close_style.bg_color = Color(0.15, 0.06, 0.04, 0.85)
+	close_style.border_width_left = 2
+	close_style.border_width_top = 2
+	close_style.border_width_right = 2
+	close_style.border_width_bottom = 2
+	close_style.border_color = Color(0.7, 0.3, 0.2, 0.6)
+	close_style.corner_radius_top_left = 8
+	close_style.corner_radius_top_right = 8
+	close_style.corner_radius_bottom_right = 8
+	close_style.corner_radius_bottom_left = 8
+
+	var close_style_hover = close_style.duplicate()
+	close_style_hover.bg_color = Color(0.25, 0.1, 0.06, 1)
+	close_style_hover.border_color = Color(0.9, 0.4, 0.3, 0.9)
+
+	var close_btn = Button.new()
+	close_btn.text = "Close"
+	close_btn.custom_minimum_size = Vector2(0, 50)
+	close_btn.add_theme_font_override("font", custom_font)
+	close_btn.add_theme_font_size_override("font_size", 20)
+	close_btn.add_theme_color_override("font_color", Color(0.85, 0.5, 0.4, 1))
+	close_btn.add_theme_color_override("font_hover_color", Color(1, 0.65, 0.5, 1))
+	close_btn.add_theme_stylebox_override("normal", close_style)
+	close_btn.add_theme_stylebox_override("hover", close_style_hover)
+	close_btn.pressed.connect(func():
+		button_press_effect(close_btn)
+		if has_node("DimOverlay"):
+			var d = create_tween()
+			d.tween_property($DimOverlay, "modulate:a", 0.0, 0.15)
+			d.tween_callback(func(): $DimOverlay.visible = false)
+		var t = create_tween().set_parallel(true)
+		t.tween_property(panel, "modulate:a", 0.0, 0.15)
+		t.tween_property(panel, "scale", Vector2(0.9, 0.9), 0.15)
+		t.tween_callback(panel.queue_free).set_delay(0.16)
+	)
+	vbox.add_child(close_btn)
+
+	add_child(panel)
+	panel.modulate.a = 0
+	panel.scale = Vector2(0.9, 0.9)
+	panel.pivot_offset = panel.size / 2
+	var open_tween = create_tween().set_parallel(true)
+	open_tween.tween_property(panel, "modulate:a", 1.0, 0.2)
+	open_tween.tween_property(panel, "scale", Vector2(1.0, 1.0), 0.25).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+# -------------------------------------------------------
+# EXIT BUTTON
+# -------------------------------------------------------
+func _on_exit_button_pressed():
+	if is_transitioning:
+		return
+	button_press_effect($CenterContainer/ExitButton)
+	shake_screen(8.0)
+	glitch_effect(3.0)
+	await get_tree().create_timer(0.2).timeout
+	get_tree().quit()
