@@ -20,6 +20,11 @@ config/icon="res://icon.svg"
 SceneTransition="*res://scenes/scene_transition.tscn"
 GameSettings="*res://scripts/GameSettings.gd"
 
+[display]
+
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+
 [dotnet]
 
 project/assembly_name="Release The Card"
@@ -38,8 +43,7 @@ restart_game={
 ]
 }
 
-[display]
-window/size/viewport_width=1152
-window/size/viewport_height=648
-window/stretch/mode="canvas_items"
-window/stretch/aspect="expand"
+[rendering]
+
+textures/vram_compression/import_s3tc_bptc=true
+textures/vram_compression/import_etc2_astc=true
